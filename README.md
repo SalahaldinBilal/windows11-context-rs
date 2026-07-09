@@ -8,6 +8,8 @@ A Rust shell extension that adds **custom entries to the Windows 11 modern (top-
 
 Entries also work in the classic ("Show more options") menu via `cmrsRun.exe` registry verbs.
 
+![Custom entries in the Windows 11 context menu](docs/context-menu.png)
+
 ## How it works
 
 ```
