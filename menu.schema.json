@@ -1,0 +1,167 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/SalahaldinBilal/windows11-context-rs/main/menu.schema.json",
+  "title": "windows11-context-rs menu config",
+  "description": "Config file for one windows11-context-rs context-menu entry. Numeric flag values and the deprecated acceptDirectory/acceptFile booleans are also accepted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "exe"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional: URL or path to this JSON schema, for editor autocomplete/validation."
+    },
+    "title": {
+      "type": "string",
+      "description": "Label shown in the context menu."
+    },
+    "exe": {
+      "type": "string",
+      "description": "Executable to launch. Environment variables like %LocalAppData% are expanded."
+    },
+    "param": {
+      "type": "string",
+      "default": "",
+      "description": "Command-line arguments. Supports {path}, {parent}, {name}, {nameNoExt}, {extension} (and the *0 variants for the first selected item in join mode)."
+    },
+    "icon": {
+      "type": "string",
+      "default": "",
+      "description": "Icon spec as \"path,index\" (e.g. \"%LocalAppData%\\\\Programs\\\\App\\\\App.exe,0\"), or \"exe\" to reuse the entry's own exe as the icon source. Environment variables are expanded."
+    },
+    "iconDark": {
+      "type": "string",
+      "default": "",
+      "description": "Icon spec used when Explorer is in dark mode. Falls back to \"icon\" if empty. Also accepts \"exe\". Environment variables are expanded."
+    },
+    "acceptDirectory": {
+      "type": "boolean",
+      "description": "Deprecated: use acceptDirectoryFlag instead. true = all directory types (15), false = none."
+    },
+    "acceptDirectoryFlag": {
+      "description": "Which directory-like targets this entry matches. A numeric bitmask (directory=1, background=2, desktop=4, drive=8), a single name, or an array of names. Names are case/separator-insensitive (\"top-left\" == \"TOP_LEFT\").",
+      "default": "all",
+      "anyOf": [
+        { "type": "integer", "minimum": 0, "maximum": 15 },
+        { "$ref": "#/definitions/directoryFlagName" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/definitions/directoryFlagName" }
+        }
+      ]
+    },
+    "acceptFile": {
+      "type": "boolean",
+      "description": "Deprecated shorthand: false disables file matching entirely (equivalent to acceptFileFlag: \"none\")."
+    },
+    "acceptFileFlag": {
+      "description": "How this entry matches files. Numeric (0=none, 1=extension, 2=regex, 3=extensionList, 4=all) or a name.",
+      "default": "all",
+      "anyOf": [
+        { "type": "integer", "minimum": 0, "maximum": 4 },
+        {
+          "type": "string",
+          "enum": ["none", "extension", "regex", "extensionList", "all"]
+        }
+      ]
+    },
+    "acceptExts": {
+      "type": "string",
+      "default": "",
+      "description": "Extensions to match. Space/fuzzy list for acceptFileFlag \"extension\" (e.g. \".apkx .mapk\"), or a '|'-separated exact list for \"extensionList\" (e.g. \".apk|.apkx\")."
+    },
+    "acceptFileRegex": {
+      "type": "string",
+      "default": "",
+      "description": "Regex (Rust regex syntax) matched against the file name when acceptFileFlag is \"regex\"."
+    },
+    "acceptMultipleFilesFlag": {
+      "description": "Behavior when multiple items are selected. Numeric (0=none, 1=each, 2=join) or a name.",
+      "default": "none",
+      "anyOf": [
+        { "type": "integer", "minimum": 0, "maximum": 2 },
+        { "type": "string", "enum": ["none", "each", "join"] }
+      ]
+    },
+    "pathDelimiter": {
+      "type": "string",
+      "default": " ",
+      "description": "Delimiter joining quoted paths in \"join\" mode. Defaults to a space."
+    },
+    "paramForMultipleFiles": {
+      "type": "string",
+      "default": "",
+      "description": "Alternate \"param\" template used in \"join\" mode when multiple items are selected. Falls back to \"param\" if empty."
+    },
+    "index": {
+      "type": "integer",
+      "default": 0,
+      "description": "Sort order among entries loaded from the same directory (ties break by file name)."
+    },
+    "showWindowFlag": {
+      "description": "Initial window state for the launched process. Numeric (per Win32 ShowWindow) or a name.",
+      "default": "normal",
+      "anyOf": [
+        { "type": "integer" },
+        {
+          "type": "string",
+          "enum": ["hide", "normal", "minimized", "maximized"]
+        }
+      ]
+    },
+    "workingDirectory": {
+      "type": "string",
+      "default": "",
+      "description": "Working directory for the launched process."
+    },
+    "runAsAdmin": {
+      "type": "boolean",
+      "default": false,
+      "description": "Launch the command elevated (UAC prompt)."
+    },
+    "copyIcon": {
+      "type": "boolean",
+      "default": false,
+      "description": "Snapshot the icon into a local .ico at sync time, so the entry survives the source path changing (e.g. Store apps on update)."
+    },
+    "smallIcon": {
+      "type": "object",
+      "default": null,
+      "description": "Corner badge composited onto the entry's icon.",
+      "additionalProperties": false,
+      "properties": {
+        "icon": {
+          "type": "string",
+          "default": "",
+          "description": "Icon spec (\"path,index\"), \"uac\" for the system UAC shield, or \"exe\" for the entry's own exe."
+        },
+        "location": {
+          "type": "string",
+          "default": "bottomRight",
+          "description": "Corner to place the badge in. Case/separator-insensitive.",
+          "enum": ["topLeft", "topRight", "bottomLeft", "bottomRight"]
+        }
+      }
+    }
+  },
+  "definitions": {
+    "directoryFlagName": {
+      "type": "string",
+      "enum": ["directory", "background", "desktop", "drive", "all", "none"]
+    }
+  },
+  "examples": [
+    {
+      "title": "Open in Terminal (Admin)",
+      "exe": "wt.exe",
+      "param": "-d \"{path}\"",
+      "icon": "%LocalAppData%\\Microsoft\\WindowsApps\\wt.exe,0",
+      "index": 0,
+      "acceptDirectoryFlag": "all",
+      "acceptFileFlag": "none",
+      "runAsAdmin": true,
+      "smallIcon": { "icon": "uac" },
+      "showWindowFlag": "normal"
+    }
+  ]
+}

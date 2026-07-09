@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/SalahaldinBilal/windows11-context-rs/main/menu.schema.json",
+  "title": "Open in Terminal (Admin)",
+  "exe": "wt.exe",
+  "param": "-d \"{path}\"",
+  "icon": "exe",
+  "acceptDirectoryFlag": "all",
+  "acceptFileFlag": "none",
+  "runAsAdmin": true,
+  "smallIcon": { "icon": "uac" },
+  "showWindowFlag": "normal"
+}

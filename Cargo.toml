@@ -1,0 +1,57 @@
+[package]
+name = "windows11-context-rs"
+version = "1.0.0"
+edition = "2021"
+description = "Windows 11 modern context-menu shell extension driven by JSON config files: one top-level entry per config, runAsAdmin, icon badges"
+license = "MIT"
+
+[lib]
+name = "cmrs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "cmrsRun"
+path = "src/bin/ctxmenu-run.rs"
+
+[[bin]]
+name = "cmrsSetup"
+path = "src/bin/ctxmenu-setup.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+md5 = "0.7"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.62"
+features = [
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Com",
+    "Win32_System_Ole",
+    "Win32_System_SystemServices",
+    "Win32_System_Registry",
+    "Win32_System_Environment",
+    "Win32_System_Com_Urlmon",
+    "Win32_System_Threading",
+    "Win32_Security",
+    "Win32_Graphics_Gdi",
+    "Foundation",
+    "Foundation_Collections",
+    "ApplicationModel",
+    "Management_Deployment",
+]
+
+[target.'cfg(windows)'.dependencies.windows-core]
+version = "0.62"
+
+[target.'cfg(windows)'.dependencies.windows-collections]
+version = "0.3"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
