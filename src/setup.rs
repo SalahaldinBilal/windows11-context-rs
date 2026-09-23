@@ -2,6 +2,10 @@
 //! platform). The identity/CLSID scheme is pinned by the reference vectors in
 //! the tests below and must never change, or existing installs break.
 
+use crate::config::{
+    ext_list, MenuConfig, DIR_BACKGROUND, DIR_DIRECTORY, DIR_DRIVE, FILE_EXT_LIST, FILE_NONE,
+};
+
 /// Package identity prefix; also the classic-menu registry key prefix.
 pub const ID_PREFIX: &str = "CtxRs.";
 
@@ -155,6 +159,82 @@ pub fn manifest_xml(identity: &str, title: &str, clsid: &str, item_types: &str) 
     )
 }
 
+/// HKCU-relative parents of classic-menu verbs: folders, backgrounds, drives, all files.
+pub const CLASSIC_ROOTS: [&str; 4] = [
+    r"Software\Classes\Directory\shell",
+    r"Software\Classes\Directory\Background\shell",
+    r"Software\Classes\Drive\shell",
+    r"Software\Classes\*\shell",
+];
+
+/// Per-extension verbs live under `<this>\<.ext>\shell`.
+pub const FILE_ASSOC_ROOT: &str = r"Software\Classes\SystemFileAssociations";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassicTarget {
+    /// HKCU-relative key the verb is created under.
+    pub root: String,
+    /// Explorer's path placeholder for this kind of target.
+    pub arg: &'static str,
+    pub title: String,
+}
+
+fn ext_shell_root(ext: &str) -> Option<String> {
+    let valid = ext.len() > 1 && ext.starts_with('.') && !ext.contains(['\\', '/']);
+    valid.then(|| format!(r"{FILE_ASSOC_ROOT}\{ext}\shell"))
+}
+
+/// Where a config's classic-menu verbs go. Explorer shows a same-named
+/// per-extension verb instead of the `*` one, so title rules override per type.
+pub fn classic_targets(cfg: &MenuConfig, title: &str) -> Vec<ClassicTarget> {
+    let mut targets = Vec::new();
+    if !cfg.classic_menu {
+        return targets;
+    }
+    let mut push = |root: &str, arg: &'static str, title: &str| {
+        targets.push(ClassicTarget {
+            root: root.to_string(),
+            arg,
+            title: title.to_string(),
+        })
+    };
+
+    let dir_flag = cfg.dir_flag();
+    if dir_flag & DIR_DIRECTORY != 0 {
+        push(CLASSIC_ROOTS[0], "%V", title);
+    }
+    if dir_flag & DIR_BACKGROUND != 0 {
+        push(CLASSIC_ROOTS[1], "%V", title);
+    }
+    if dir_flag & DIR_DRIVE != 0 {
+        push(CLASSIC_ROOTS[2], "%V", title);
+    }
+
+    let per_ext: Vec<String> = match cfg.file_flag() {
+        FILE_NONE => Vec::new(),
+        FILE_EXT_LIST => ext_list(&cfg.accept_exts).collect(),
+        _ => {
+            push(CLASSIC_ROOTS[3], "%1", title);
+            cfg.title_rules
+                .iter()
+                .flat_map(|rule| ext_list(&rule.accept_exts))
+                .collect()
+        }
+    };
+
+    let mut seen = std::collections::HashSet::new();
+    for ext in per_ext {
+        let Some(root) = ext_shell_root(&ext) else {
+            continue;
+        };
+        if seen.insert(ext.clone()) {
+            let ext_title = cfg.rule_for_ext(&ext).map_or(title, |rule| &rule.title);
+            push(&root, "%1", ext_title);
+        }
+    }
+    targets
+}
+
 /// packages.json content for the DLL: CLSID -> { title, files }.
 pub fn packages_json(entries: &[(String, String, String)]) -> String {
     let mut clsids = serde_json::Map::new();
@@ -235,6 +315,62 @@ mod tests {
     fn generated_icon_names() {
         assert_eq!(generated_icon_name("Slug", false), "Slug.ico");
         assert_eq!(generated_icon_name("Slug", true), "Slug.dark.ico");
+    }
+
+    fn roots_and_titles(targets: &[ClassicTarget]) -> Vec<(&str, &str)> {
+        targets
+            .iter()
+            .map(|t| (t.root.as_str(), t.title.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn classic_targets_all_files_with_rules() {
+        let cfg = MenuConfig::parse(
+            r#"{"title":"Upload file","exe":"x","acceptDirectoryFlag":"none","acceptFileFlag":"all",
+                "titleRules":[
+                    {"acceptExts":".png|.jpg","title":"Upload image"},
+                    {"acceptExts":".PNG|.mp4","title":"Upload video"}
+                ]}"#,
+        )
+        .unwrap();
+        let targets = classic_targets(&cfg, "Upload file");
+        assert_eq!(
+            roots_and_titles(&targets),
+            [
+                (r"Software\Classes\*\shell", "Upload file"),
+                (r"Software\Classes\SystemFileAssociations\.png\shell", "Upload image"),
+                (r"Software\Classes\SystemFileAssociations\.jpg\shell", "Upload image"),
+                (r"Software\Classes\SystemFileAssociations\.mp4\shell", "Upload video"),
+            ]
+        );
+        assert!(targets.iter().all(|t| t.arg == "%1"));
+    }
+
+    #[test]
+    fn classic_targets_ext_list_skips_the_all_files_root() {
+        let cfg = MenuConfig::parse(
+            r#"{"title":"T","exe":"x","acceptDirectoryFlag":["directory","drive"],
+                "acceptFileFlag":"extensionList","acceptExts":".txt|.md|bad|",
+                "titleRules":[{"acceptExts":".md","title":"Markdown"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            roots_and_titles(&classic_targets(&cfg, "T")),
+            [
+                (r"Software\Classes\Directory\shell", "T"),
+                (r"Software\Classes\Drive\shell", "T"),
+                (r"Software\Classes\SystemFileAssociations\.txt\shell", "T"),
+                (r"Software\Classes\SystemFileAssociations\.md\shell", "Markdown"),
+            ]
+        );
+    }
+
+    #[test]
+    fn classic_targets_disabled() {
+        let cfg =
+            MenuConfig::parse(r#"{"title":"T","exe":"x","classicMenu":false}"#).unwrap();
+        assert!(classic_targets(&cfg, "T").is_empty());
     }
 
     #[test]

@@ -15,7 +15,7 @@ cargo test -- --ignored          # manual GDI icon-generation test (Windows only
 
 ## Architecture
 
-Windows 11's new context menu only shows entries from code with package identity, and allows one top-level entry per app. So `cmrsSetup` generates **one loose MSIX package per config file** (unique identity + deterministic CLSID) and registers it via Developer Mode. The classic ("Show more options") menu is served separately through `HKCU\...\shell\CtxRs.<slug>` registry verbs running `cmrsRun.exe`.
+Windows 11's new context menu only shows entries from code with package identity, and allows one top-level entry per app. So `cmrsSetup` generates **one loose MSIX package per config file** (unique identity + deterministic CLSID) and registers it via Developer Mode. The classic ("Show more options") menu is served separately through `HKCU\...\shell\CtxRs.<slug>` registry verbs running `cmrsRun.exe` (skipped when a config sets `classicMenu: false`). `extensionList` and `titleRules` extensions get per-extension verbs under `SystemFileAssociations\<ext>\shell` with the same key name; Explorer shows that one instead of the `*\shell` verb, which is how classic titles vary by type. `classic_targets` (`setup.rs`) decides every classic key, and sync deletes any `CtxRs.*` key it didn't write this run.
 
 ```
 %LOCALAPPDATA%\ContextMenuRs\
@@ -28,11 +28,11 @@ Windows 11's new context menu only shows entries from code with package identity
 
 New menu flow: Explorer → dllhost surrogate (`com:SurrogateServer`, STA) → `DllGetClassObject(clsid)` → CLSID looked up in `packages.json` → `RootCommand` serves that config. One matching entry renders directly; several become a flyout.
 
-- `src/config.rs` — config schema, matching rules, `{path}` variable substitution. Platform-independent on purpose (manual `\`/`/` splitting, not `std::path`) so tests pass on Linux CI.
+- `src/config.rs` — config schema, matching rules, selection-dependent titles (`title_for`), `{path}` variable substitution. Platform-independent on purpose (manual `\`/`/` splitting, not `std::path`) so tests pass on Linux CI.
 - `src/com.rs` — `IExplorerCommand`/`IObjectWithSite`/`IEnumExplorerCommand`/class factory (windows-rs `#[implement]`).
 - `src/exec.rs` — `ShellExecuteExW`, env expansion, `runas` verb for runAsAdmin.
 - `src/icons.rs` — GDI icon extraction, badge compositing, .ico writing. Only ever runs in `cmrsSetup`.
-- `src/setup.rs` — pure package-generation logic (slugs, CLSIDs, manifest XML); cross-platform, heavily unit-tested.
+- `src/setup.rs` — pure package-generation logic (slugs, CLSIDs, manifest XML, classic-menu targets); cross-platform, heavily unit-tested.
 - `src/bin/ctxmenu-setup.rs` — the `cmrsSetup.exe` installer: Dev Mode self-elevation, WinRT `PackageManager` registration, classic registry entries, stale cleanup.
 - `src/bin/ctxmenu-run.rs` — `cmrsRun.exe`, the classic-menu runner.
 - `menu.schema.json` — JSON Schema for configs (editor autocomplete); `examples/` holds copyable configs. The installer never seeds default configs.

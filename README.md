@@ -21,7 +21,8 @@ Explorer (new menu) ──► dllhost surrogate ──► cmrs.dll
                                               │  match folder/file/drive rules
                                               └► ShellExecuteExW ("runas" if runAsAdmin)
 
-Classic menu ──► HKCU\...\shell\CtxRs.* ──► cmrsRun.exe <config.json> <path>
+Classic menu ──► HKCU\...\shell\CtxRs.*      ──► cmrsRun.exe <config.json> <path>
+                 (per-extension verbs under SystemFileAssociations\<ext>\shell)
 ```
 
 - Exactly **one** matching entry per package → rendered directly with its own title/icon (no flyout).
@@ -103,6 +104,21 @@ The schema lives at [menu.schema.json](menu.schema.json).
 
   // Menu text. Required.
   "title": "Open With VS Code",
+
+  // Menu text when 2+ items are selected (optional, falls back to "title").
+  "titlePlural": "Open All With VS Code",
+
+  // Selection-dependent menu text (optional). The first rule whose '|'-separated
+  // extension list contains EVERY selected file's extension replaces
+  // title/titlePlural; folders and mixed selections keep them. The classic
+  // menu gets one verb per listed extension, using the rule's singular title.
+  "titleRules": [
+    { "acceptExts": ".md|.txt", "title": "Edit Note", "titlePlural": "Edit Notes" }
+  ],
+
+  // Also add the entry to the classic ("Show more options") menu (default
+  // true). Set false if another program writes its own classic verbs.
+  "classicMenu": true,
 
   // Menu icon (optional). Either an .ico/.png file, "file.exe,N" where N is
   // the icon index inside the exe/dll (negative N = resource id), or the
@@ -209,6 +225,6 @@ Usable in `param`, `paramForMultipleFiles` and `workingDirectory`:
 
 - **Unsigned packages / Developer Mode**: without a code-signing certificate the packages register unsigned, which requires Developer Mode to stay enabled.
 - **Ordering**: Windows decides the relative order of top-level entries from different packages — `index` only orders items *within* a flyout.
-- **Classic-menu file filtering**: registry verbs can't do regex/extension matching, so file-type entries appear under `*\shell` for all files in the old menu (the new menu filters correctly).
+- **Classic-menu file filtering**: `extensionList` entries (and `titleRules` extensions) get per-extension verbs under `SystemFileAssociations\<ext>\shell`, but `extension`/`regex`/`all` entries can't be filtered by registry verbs and appear under `*\shell` for all files in the old menu (the new menu filters correctly). Set `"classicMenu": false` to leave the old menu out entirely. Classic verbs run once per selected file, so `titlePlural` only applies to the new menu.
 - **Icon paths**: Store-app icon paths (`wt.exe` under `WindowsApps\...`) break when the app updates — set `"copyIcon": true` to snapshot the icon locally, or re-run `cmrsSetup sync` after fixing the path. `%EnvVars%` are expanded in `icon`/`iconDark`.
 - After a major Windows update, re-run the installer if entries disappear.

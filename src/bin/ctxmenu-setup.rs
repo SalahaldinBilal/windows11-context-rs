@@ -38,12 +38,6 @@ mod app {
     const SEE_MASK_NOCLOSEPROCESS: u32 = 0x0000_0040;
     const DEV_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock";
     const DEV_VALUE: &str = "AllowDevelopmentWithoutDevLicense";
-    const CLASSIC_ROOTS: [&str; 4] = [
-        r"Software\Classes\Directory\shell",
-        r"Software\Classes\Directory\Background\shell",
-        r"Software\Classes\Drive\shell",
-        r"Software\Classes\*\shell",
-    ];
 
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -286,6 +280,7 @@ Configs live in %LOCALAPPDATA%\\ContextMenuRs\\custom_commands (one JSON file pe
         let mut mapping: Vec<(String, String, String)> = Vec::new();
         let mut live_identities: Vec<String> = Vec::new();
         let mut live_icons: Vec<String> = Vec::new();
+        let mut live_classic_keys: Vec<String> = Vec::new();
         let mut registered = 0usize;
 
         for file_name in &configs {
@@ -363,7 +358,9 @@ Configs live in %LOCALAPPDATA%\\ContextMenuRs\\custom_commands (one JSON file pe
                 }
             }
 
-            write_classic_entries(&slug, &title, &cfg, file_name, &menu_icon)?;
+            live_classic_keys.extend(write_classic_entries(
+                &slug, &title, &cfg, file_name, &menu_icon,
+            )?);
         }
 
         let mapping_path = data_root().join("packages.json");
@@ -371,7 +368,7 @@ Configs live in %LOCALAPPDATA%\\ContextMenuRs\\custom_commands (one JSON file pe
             .map_err(|e| ioerr("writing", &mapping_path, e))?;
 
         remove_stale_packages(&pm, &live_identities);
-        remove_stale_classic_entries(&live_identities);
+        remove_stale_classic_entries(&live_classic_keys);
         remove_stale_icons(&live_icons);
 
         println!();
@@ -511,41 +508,31 @@ Configs live in %LOCALAPPDATA%\\ContextMenuRs\\custom_commands (one JSON file pe
 
     // ---------------------------------------------------------------- classic menu
 
-    fn classic_targets(cfg: &MenuConfig) -> Vec<(&'static str, &'static str)> {
-        let mut v = Vec::new();
-        if cfg.dir_flag() & 1 != 0 {
-            v.push((CLASSIC_ROOTS[0], "%V"));
-        }
-        if cfg.dir_flag() & 2 != 0 {
-            v.push((CLASSIC_ROOTS[1], "%V"));
-        }
-        if cfg.dir_flag() & 8 != 0 {
-            v.push((CLASSIC_ROOTS[2], "%V"));
-        }
-        if cfg.file_flag() > 0 {
-            v.push((CLASSIC_ROOTS[3], "%1"));
-        }
-        v
-    }
-
+    /// Writes a config's classic verbs and returns the keys written.
     fn write_classic_entries(
         slug: &str,
         title: &str,
         cfg: &MenuConfig,
         file_name: &str,
         icon: &str,
-    ) -> Result<(), String> {
+    ) -> Result<Vec<String>, String> {
         let runner = installed_runner();
-        for (root, arg) in classic_targets(cfg) {
-            let key = format!("{root}\\{ID_PREFIX}{slug}");
-            set_reg_sz(&key, None, title)?;
+        let mut written = Vec::new();
+        for target in classic_targets(cfg, title) {
+            let key = format!("{}\\{ID_PREFIX}{slug}", target.root);
+            set_reg_sz(&key, None, &target.title)?;
             if !icon.is_empty() {
                 set_reg_sz(&key, Some("Icon"), icon)?;
             }
-            let command = format!("\"{}\" \"{file_name}\" \"{arg}\"", runner.display());
+            let command = format!(
+                "\"{}\" \"{file_name}\" \"{}\"",
+                runner.display(),
+                target.arg
+            );
             set_reg_sz(&format!("{key}\\command"), None, &command)?;
+            written.push(key);
         }
-        Ok(())
+        Ok(written)
     }
 
     fn remove_stale_icons(keep: &[String]) {
@@ -560,15 +547,25 @@ Configs live in %LOCALAPPDATA%\\ContextMenuRs\\custom_commands (one JSON file pe
         }
     }
 
-    fn remove_stale_classic_entries(keep_identities: &[String]) {
-        for root in CLASSIC_ROOTS {
-            for name in reg_subkeys(root) {
+    /// Every key our classic verbs can live under, per-extension ones included.
+    fn classic_parent_keys() -> Vec<String> {
+        let mut parents: Vec<String> = CLASSIC_ROOTS.iter().map(|r| r.to_string()).collect();
+        parents.extend(
+            reg_subkeys(FILE_ASSOC_ROOT)
+                .into_iter()
+                .map(|assoc| format!("{FILE_ASSOC_ROOT}\\{assoc}\\shell")),
+        );
+        parents
+    }
+
+    fn remove_stale_classic_entries(keep_keys: &[String]) {
+        for parent in classic_parent_keys() {
+            for name in reg_subkeys(&parent) {
+                let key = format!("{parent}\\{name}");
                 if name.starts_with(ID_PREFIX)
-                    && !keep_identities
-                        .iter()
-                        .any(|k| k.eq_ignore_ascii_case(&name))
+                    && !keep_keys.iter().any(|k| k.eq_ignore_ascii_case(&key))
                 {
-                    let sub = wide(&format!("{root}\\{name}"));
+                    let sub = wide(&key);
                     let _ = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, PCWSTR(sub.as_ptr())) };
                 }
             }

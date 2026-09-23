@@ -1,6 +1,6 @@
 [package]
 name = "windows11-context-rs"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "Windows 11 modern context-menu shell extension driven by JSON config files: one top-level entry per config, runAsAdmin, icon badges"
 license = "MIT"

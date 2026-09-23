@@ -181,9 +181,51 @@ pub struct SmallIcon {
     pub location: String,
 }
 
+/// One `titleRules` entry: a title used when every selected file has one of
+/// `acceptExts` ('|'-separated exact list).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct TitleRule {
+    #[serde(default, rename = "acceptExts")]
+    pub accept_exts: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default, rename = "titlePlural")]
+    pub title_plural: String,
+}
+
+impl TitleRule {
+    pub fn accepts_ext(&self, ext: &str) -> bool {
+        !ext.is_empty() && ext_list(&self.accept_exts).any(|e| e == ext)
+    }
+
+    fn is_usable(&self) -> bool {
+        !self.title.trim().is_empty()
+    }
+}
+
+/// Entries of a '|'-separated extension list, trimmed and lowercased.
+pub fn ext_list(list: &str) -> impl Iterator<Item = String> + '_ {
+    list.split('|')
+        .map(|e| e.trim().to_lowercase())
+        .filter(|e| !e.is_empty())
+}
+
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct MenuConfig {
     pub title: String,
+    /// Title used when 2+ items are selected (falls back to `title`).
+    #[serde(default, rename = "titlePlural")]
+    pub title_plural: String,
+    /// Selection-dependent titles; the first rule every selected file satisfies wins.
+    #[serde(default, rename = "titleRules")]
+    pub title_rules: Vec<TitleRule>,
+    /// Whether `cmrsSetup` also writes classic ("Show more options") menu verbs.
+    #[serde(default = "default_true", rename = "classicMenu")]
+    pub classic_menu: bool,
     pub exe: String,
     #[serde(default)]
     pub param: String,
@@ -283,14 +325,34 @@ impl MenuConfig {
                     Ok(re) => re.is_match(name),
                     Err(_) => false,
                 },
-                FILE_EXT_LIST => self
-                    .accept_exts
-                    .to_lowercase()
-                    .split('|')
-                    .any(|e| e.trim() == ext),
+                FILE_EXT_LIST => ext_list(&self.accept_exts).any(|e| e == ext),
                 _ => false,
             },
         }
+    }
+
+    /// Menu title for a selection whose items have these extensions
+    /// (lowercase with dot, empty for folders), plural form for 2+ items.
+    pub fn title_for(&self, exts: &[String]) -> &str {
+        let rule = self.title_rules.iter().filter(|r| r.is_usable()).find(|r| {
+            !exts.is_empty() && exts.iter().all(|ext| r.accepts_ext(ext))
+        });
+        let (title, plural) = match rule {
+            Some(rule) => (&rule.title, &rule.title_plural),
+            None => (&self.title, &self.title_plural),
+        };
+        if exts.len() > 1 && !plural.trim().is_empty() {
+            plural
+        } else {
+            title
+        }
+    }
+
+    /// The first usable title rule covering a single file extension.
+    pub fn rule_for_ext(&self, ext: &str) -> Option<&TitleRule> {
+        self.title_rules
+            .iter()
+            .find(|r| r.is_usable() && r.accepts_ext(ext))
     }
 
     /// Effective badge icon spec: from `smallIcon`, if set. None = no badge.
@@ -654,6 +716,60 @@ mod tests {
         assert!(c.accepts(FileType::File, "a.apk", ".apk"));
         assert!(c.accepts(FileType::File, "b.APKX", ".apkx"));
         assert!(!c.accepts(FileType::File, "c.txt", ".txt"));
+    }
+
+    #[test]
+    fn ext_list_ignores_blank_entries() {
+        let exts: Vec<String> = ext_list(" .PNG | |.jpg|").collect();
+        assert_eq!(exts, [".png", ".jpg"]);
+    }
+
+    const TITLED: &str = r#"{
+        "title": "Upload file",
+        "titlePlural": "Upload files",
+        "exe": "x",
+        "titleRules": [
+            { "acceptExts": ".png|.JPG", "title": "Upload image", "titlePlural": "Upload images" },
+            { "acceptExts": ".mp4", "title": "Upload video" },
+            { "acceptExts": ".gif", "title": "" }
+        ]
+    }"#;
+
+    fn exts(list: &[&str]) -> Vec<String> {
+        list.iter().map(|e| e.to_string()).collect()
+    }
+
+    #[test]
+    fn title_rules_pick_title_by_selection() {
+        let c = MenuConfig::parse(TITLED).unwrap();
+        assert_eq!(c.title_for(&exts(&[".png"])), "Upload image");
+        assert_eq!(c.title_for(&exts(&[".png", ".jpg"])), "Upload images");
+        assert_eq!(c.title_for(&exts(&[".mp4"])), "Upload video");
+        // no plural on the rule: singular is kept
+        assert_eq!(c.title_for(&exts(&[".mp4", ".mp4"])), "Upload video");
+        // mixed selections, folders and untitled rules fall back to the base title
+        assert_eq!(c.title_for(&exts(&[".png", ".mp4"])), "Upload files");
+        assert_eq!(c.title_for(&exts(&[".zip"])), "Upload file");
+        assert_eq!(c.title_for(&exts(&[""])), "Upload file");
+        assert_eq!(c.title_for(&exts(&[".gif"])), "Upload file");
+        assert_eq!(c.title_for(&[]), "Upload file");
+    }
+
+    #[test]
+    fn rule_for_ext_skips_untitled_rules() {
+        let c = MenuConfig::parse(TITLED).unwrap();
+        assert_eq!(c.rule_for_ext(".jpg").map(|r| r.title.as_str()), Some("Upload image"));
+        assert!(c.rule_for_ext(".gif").is_none());
+        assert!(c.rule_for_ext(".zip").is_none());
+    }
+
+    #[test]
+    fn classic_menu_defaults_on() {
+        let c = MenuConfig::parse(r#"{"title":"T","exe":"x"}"#).unwrap();
+        assert!(c.classic_menu);
+        assert!(c.title_rules.is_empty());
+        let c = MenuConfig::parse(r#"{"title":"T","exe":"x","classicMenu":false}"#).unwrap();
+        assert!(!c.classic_menu);
     }
 
     #[test]

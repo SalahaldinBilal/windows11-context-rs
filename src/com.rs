@@ -143,6 +143,7 @@ fn name_and_ext(path: &str, file_type: FileType) -> (String, String) {
 #[implement(IExplorerCommand, Agile = false)]
 struct SubCommand {
     cfg: MenuConfig,
+    title: String,
     paths: Vec<String>,
     dark: bool,
 }
@@ -174,7 +175,7 @@ impl SubCommand {
 
 impl IExplorerCommand_Impl for SubCommand_Impl {
     fn GetTitle(&self, _items: Ref<'_, IShellItemArray>) -> Result<PWSTR> {
-        co_pwstr(&self.cfg.title)
+        co_pwstr(&self.title)
     }
 
     fn GetIcon(&self, _items: Ref<'_, IShellItemArray>) -> Result<PWSTR> {
@@ -285,6 +286,8 @@ impl IEnumExplorerCommand_Impl for CommandEnum_Impl {
 struct RootState {
     matched: Vec<MenuConfig>,
     paths: Vec<String>,
+    /// Per selected item: lowercase extension with dot, empty for folders.
+    exts: Vec<String>,
     dark: bool,
 }
 
@@ -385,23 +388,23 @@ impl RootCommand_Impl {
 
         let configs = load_configs(&config_dir(), self.files.as_deref());
         let multiple = paths.len() > 1;
+        let names_and_exts: Vec<(String, String)> = paths
+            .iter()
+            .zip(&types)
+            .map(|(p, t)| name_and_ext(p, *t))
+            .collect();
 
         let matched: Vec<MenuConfig> = configs
             .into_iter()
             .filter(|cfg| {
-                if multiple {
-                    if !cfg.accepts_multiple() {
-                        return false;
-                    }
-                    // Every selected item must be acceptable.
-                    paths.iter().zip(&types).all(|(p, t)| {
-                        let (name, ext) = name_and_ext(p, *t);
-                        cfg.accepts(*t, &name, &ext)
-                    })
-                } else {
-                    let (name, ext) = name_and_ext(&paths[0], types[0]);
-                    cfg.accepts(types[0], &name, &ext)
+                if multiple && !cfg.accepts_multiple() {
+                    return false;
                 }
+                // Every selected item must be acceptable.
+                types
+                    .iter()
+                    .zip(&names_and_exts)
+                    .all(|(t, (name, ext))| cfg.accepts(*t, name, ext))
             })
             .collect();
 
@@ -415,6 +418,7 @@ impl RootCommand_Impl {
         *self.state.write().unwrap() = RootState {
             matched,
             paths,
+            exts: names_and_exts.into_iter().map(|(_, ext)| ext).collect(),
             dark: apps_use_dark_theme(),
         };
         any
@@ -425,7 +429,7 @@ impl IExplorerCommand_Impl for RootCommand_Impl {
     fn GetTitle(&self, _items: Ref<'_, IShellItemArray>) -> Result<PWSTR> {
         let state = self.state.read().unwrap();
         if state.matched.len() == 1 {
-            co_pwstr(&state.matched[0].title)
+            co_pwstr(state.matched[0].title_for(&state.exts))
         } else {
             co_pwstr(&self.title)
         }
@@ -497,6 +501,7 @@ impl IExplorerCommand_Impl for RootCommand_Impl {
             .map(|cfg| {
                 SubCommand {
                     cfg: cfg.clone(),
+                    title: cfg.title_for(&state.exts).to_string(),
                     paths: state.paths.clone(),
                     dark: state.dark,
                 }

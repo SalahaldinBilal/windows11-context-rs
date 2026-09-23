@@ -15,6 +15,41 @@
       "type": "string",
       "description": "Label shown in the context menu."
     },
+    "titlePlural": {
+      "type": "string",
+      "default": "",
+      "description": "Label used when 2+ items are selected. Falls back to \"title\" if empty."
+    },
+    "titleRules": {
+      "type": "array",
+      "default": [],
+      "description": "Selection-dependent labels. The first rule whose acceptExts contains every selected file's extension replaces title/titlePlural; folders and mixed selections fall back to them. In the classic menu each listed extension gets its own verb with the rule's (singular) title.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["acceptExts", "title"],
+        "properties": {
+          "acceptExts": {
+            "type": "string",
+            "description": "'|'-separated exact extension list with leading dots (e.g. \".png|.jpg\")."
+          },
+          "title": {
+            "type": "string",
+            "description": "Label used when this rule matches."
+          },
+          "titlePlural": {
+            "type": "string",
+            "default": "",
+            "description": "Label used when this rule matches 2+ items. Falls back to the rule's title if empty."
+          }
+        }
+      }
+    },
+    "classicMenu": {
+      "type": "boolean",
+      "default": true,
+      "description": "Also add this entry to the classic (\"Show more options\") menu. Set false when another program provides its own classic-menu verbs."
+    },
     "exe": {
       "type": "string",
       "description": "Executable to launch. Environment variables like %LocalAppData% are expanded."
