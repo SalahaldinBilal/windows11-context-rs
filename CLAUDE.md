@@ -23,7 +23,8 @@ Windows 11's new context menu only shows entries from code with package identity
   custom_commands\*.json      <- menu definitions (one file = one top-level entry)
   packages.json               <- { "clsids": { "<GUID>": {"title","files":[..]} } }
   packages\<slug>\            <- generated loose packages (AppxManifest.xml + binary copies)
-  icons\<slug>[.dark].ico     <- icons pre-generated at sync time (copyIcon/badges)
+  icons\<slug>[.dark].ico     <- icons pre-generated at sync time (copyIcon, default on / badges);
+                                 kept when the source is gone, deleted only with their config
 ```
 
 New menu flow: Explorer → dllhost surrogate (`com:SurrogateServer`, STA) → `DllGetClassObject(clsid)` → CLSID looked up in `packages.json` → `RootCommand` serves that config. One matching entry renders directly; several become a flyout.
@@ -31,7 +32,7 @@ New menu flow: Explorer → dllhost surrogate (`com:SurrogateServer`, STA) → `
 - `src/config.rs` — config schema, matching rules, selection-dependent titles (`title_for`), `{path}` variable substitution. Platform-independent on purpose (manual `\`/`/` splitting, not `std::path`) so tests pass on Linux CI.
 - `src/com.rs` — `IExplorerCommand`/`IObjectWithSite`/`IEnumExplorerCommand`/class factory (windows-rs `#[implement]`).
 - `src/exec.rs` — `ShellExecuteExW`, env expansion, `runas` verb for runAsAdmin.
-- `src/icons.rs` — GDI icon extraction, badge compositing, .ico writing. Only ever runs in `cmrsSetup`.
+- `src/icons.rs` — GDI icon extraction, badge compositing, .ico writing; icon paths go through `icon_location`, which resolves bare names on PATH and follows app execution aliases (reparse tag `APPEXECLINK`, parsed by the pure `setup::parse_app_exec_link`) to the app's current exe. Only ever runs in `cmrsSetup`.
 - `src/setup.rs` — pure package-generation logic (slugs, CLSIDs, manifest XML, classic-menu targets); cross-platform, heavily unit-tested.
 - `src/bin/ctxmenu-setup.rs` — the `cmrsSetup.exe` installer: Dev Mode self-elevation, WinRT `PackageManager` registration, classic registry entries, stale cleanup.
 - `src/bin/ctxmenu-run.rs` — `cmrsRun.exe`, the classic-menu runner.

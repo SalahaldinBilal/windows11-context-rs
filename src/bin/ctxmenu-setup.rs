@@ -339,20 +339,15 @@ Configs live in %LOCALAPPDATA%\\ContextMenuRs\\custom_commands (one JSON file pe
                 if badge.is_some() || !cfg.icon.trim().is_empty() {
                     let name = generated_icon_name(&slug, false);
                     let dest = icons_dir().join(&name);
-                    if generate_icon(&expand_env(cfg.resolve_icon_spec(&cfg.icon)), &dest, badge) {
+                    if refresh_cached_icon(&cfg, &cfg.icon, &dest, badge, file_name) {
                         menu_icon = dest.to_string_lossy().into_owned();
                         live_icons.push(name);
-                    } else {
-                        println!("  warning: could not generate icon for {file_name}");
                     }
                 }
                 if !cfg.icon_dark.trim().is_empty() {
                     let name = generated_icon_name(&slug, true);
-                    if generate_icon(
-                        &expand_env(cfg.resolve_icon_spec(&cfg.icon_dark)),
-                        &icons_dir().join(&name),
-                        badge,
-                    ) {
+                    let dest = icons_dir().join(&name);
+                    if refresh_cached_icon(&cfg, &cfg.icon_dark, &dest, badge, file_name) {
                         live_icons.push(name);
                     }
                 }
@@ -533,6 +528,27 @@ Configs live in %LOCALAPPDATA%\\ContextMenuRs\\custom_commands (one JSON file pe
             written.push(key);
         }
         Ok(written)
+    }
+
+    /// Regenerates a cached icon; if the source is gone, the previous snapshot is kept,
+    /// since surviving a moved or uninstalled source is what the cache is for.
+    /// Returns whether a usable cached icon exists at `dest`.
+    fn refresh_cached_icon(
+        cfg: &MenuConfig,
+        spec: &str,
+        dest: &Path,
+        badge: Option<(&str, cmrs::config::Corner)>,
+        file_name: &str,
+    ) -> bool {
+        if generate_icon(&expand_env(cfg.resolve_icon_spec(spec)), dest, badge) {
+            return true;
+        }
+        if dest.is_file() {
+            println!("  warning: icon source for {file_name} is unavailable, keeping the cached icon");
+            return true;
+        }
+        println!("  warning: could not generate icon for {file_name}");
+        false
     }
 
     fn remove_stale_icons(keep: &[String]) {

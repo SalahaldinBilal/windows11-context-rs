@@ -123,16 +123,21 @@ The schema lives at [menu.schema.json](menu.schema.json).
   // Menu icon (optional). Either an .ico/.png file, "file.exe,N" where N is
   // the icon index inside the exe/dll (negative N = resource id), or the
   // special value "exe" to reuse "exe" below as the icon source.
-  // %EnvVars% are expanded. Set "copyIcon" below to also snapshot the icon
-  // locally, so a moving source path can't break it.
+  // %EnvVars% are expanded, bare names ("wt.exe") are looked up on PATH, and
+  // Store app execution aliases (%LocalAppData%\Microsoft\WindowsApps\*.exe)
+  // are followed to the app's current install folder, so they survive updates.
+  // The icon is snapshotted locally (see "copyIcon"), so a moving source path
+  // can't break it.
   "icon": "%LocalAppData%\\Programs\\Microsoft VS Code\\Code.exe,0",
 
   // Alternative icon used when Windows is in dark mode (optional).
   "iconDark": "",
 
   // Snapshot the icon into a local .ico when you run `cmrsSetup sync`, and
-  // point the menu at that copy. The entry then keeps its icon even if the
-  // source moves - e.g. Store apps (wt.exe) change paths on every update.
+  // point the menu at that copy (default true). The entry then keeps its icon
+  // even if the source moves or is uninstalled - e.g. Store apps (wt.exe)
+  // change paths on every update. If the source is unavailable on a later
+  // sync, the existing snapshot is kept. Set false to use the source directly.
   "copyIcon": true,
 
   // Composite a half-size badge onto the corner of the icon.
@@ -226,5 +231,5 @@ Usable in `param`, `paramForMultipleFiles` and `workingDirectory`:
 - **Unsigned packages / Developer Mode**: without a code-signing certificate the packages register unsigned, which requires Developer Mode to stay enabled.
 - **Ordering**: Windows decides the relative order of top-level entries from different packages — `index` only orders items *within* a flyout.
 - **Classic-menu file filtering**: `extensionList` entries (and `titleRules` extensions) get per-extension verbs under `SystemFileAssociations\<ext>\shell`, but `extension`/`regex`/`all` entries can't be filtered by registry verbs and appear under `*\shell` for all files in the old menu (the new menu filters correctly). Set `"classicMenu": false` to leave the old menu out entirely. Classic verbs run once per selected file, so `titlePlural` only applies to the new menu.
-- **Icon paths**: Store-app icon paths (`wt.exe` under `WindowsApps\...`) break when the app updates — set `"copyIcon": true` to snapshot the icon locally, or re-run `cmrsSetup sync` after fixing the path. `%EnvVars%` are expanded in `icon`/`iconDark`.
+- **Icon paths**: a Store app's versioned install path (`C:\Program Files\WindowsApps\<Package>_<version>_...\wt.exe`) breaks when the app updates. Point `icon` at its app execution alias instead (`%LocalAppData%\Microsoft\WindowsApps\wt.exe,0`, or `"exe"` when `exe` is the alias name): sync resolves it to the current version every time. Icons are snapshotted by default and a snapshot survives the source disappearing, but it can only be created or refreshed while the source exists. `%EnvVars%` are expanded in `icon`/`iconDark`.
 - After a major Windows update, re-run the installer if entries disappear.

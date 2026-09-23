@@ -262,7 +262,7 @@ pub struct MenuConfig {
     pub run_as_admin: bool,
     /// Snapshot the icon into a local .ico at sync time, so the entry
     /// survives the source path changing (e.g. Store apps on update).
-    #[serde(default, rename = "copyIcon")]
+    #[serde(default = "default_true", rename = "copyIcon")]
     pub copy_icon: bool,
     /// Corner badge for the entry's icon.
     #[serde(default, rename = "smallIcon")]
@@ -588,11 +588,12 @@ mod tests {
 
     #[test]
     fn generated_icon_rules() {
-        let c = MenuConfig::parse(r#"{"title":"T","exe":"x","copyIcon":true}"#).unwrap();
+        // icons are cached unless a config opts out
+        let c = MenuConfig::parse(r#"{"title":"T","exe":"x"}"#).unwrap();
         assert!(c.copy_icon);
         assert!(c.uses_generated_icon());
         assert!(c.badge_spec().is_none());
-        let c = MenuConfig::parse(r#"{"title":"T","exe":"x"}"#).unwrap();
+        let c = MenuConfig::parse(r#"{"title":"T","exe":"x","copyIcon":false}"#).unwrap();
         assert!(!c.uses_generated_icon());
     }
 

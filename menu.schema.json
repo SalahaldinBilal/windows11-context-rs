@@ -156,8 +156,8 @@
     },
     "copyIcon": {
       "type": "boolean",
-      "default": false,
-      "description": "Snapshot the icon into a local .ico at sync time, so the entry survives the source path changing (e.g. Store apps on update)."
+      "default": true,
+      "description": "Snapshot the icon into a local .ico at sync time, so the entry survives the source path changing or the app being removed (e.g. Store apps on update). If the source is unavailable on a later sync, the existing snapshot is kept."
     },
     "smallIcon": {
       "type": "object",

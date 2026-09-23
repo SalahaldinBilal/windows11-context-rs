@@ -70,6 +70,27 @@ pub fn parse_icon_spec(spec: &str) -> (String, i32) {
     (s.trim_matches('"').to_string(), 0)
 }
 
+pub const IO_REPARSE_TAG_APPEXECLINK: u32 = 0x8000_001B;
+
+/// Target exe of an app execution alias (e.g. `WindowsApps\wt.exe`) from its
+/// reparse buffer: tag, length, reserved, version 3, then NUL-terminated UTF-16
+/// package family, app id and target path.
+pub fn parse_app_exec_link(buf: &[u8]) -> Option<String> {
+    let u32_at = |at: usize| {
+        buf.get(at..at + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    if u32_at(0)? != IO_REPARSE_TAG_APPEXECLINK || u32_at(8)? != 3 {
+        return None;
+    }
+    let units: Vec<u16> = buf[12..]
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect();
+    let target = units.split(|&u| u == 0).nth(2)?;
+    (!target.is_empty()).then(|| String::from_utf16_lossy(target))
+}
+
 pub fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -309,6 +330,35 @@ mod tests {
             (r"C:\dir,with,commas\i.ico".into(), 0)
         );
         assert_eq!(parse_icon_spec(" \"C:\\q.exe\" , 3 "), (r"C:\q.exe".into(), 3));
+    }
+
+    fn app_exec_link_buffer(tag: u32, version: u32, strings: &[&str]) -> Vec<u8> {
+        let mut buf = tag.to_le_bytes().to_vec();
+        buf.extend([0u8; 4]);
+        buf.extend(version.to_le_bytes());
+        for s in strings {
+            buf.extend(s.encode_utf16().chain([0]).flat_map(u16::to_le_bytes));
+        }
+        buf
+    }
+
+    #[test]
+    fn app_exec_link_target() {
+        let target = r"C:\Program Files\WindowsApps\Microsoft.WindowsTerminal_1.24.11911.0_x64__8wekyb3d8bbwe\wt.exe";
+        let strings = [
+            "Microsoft.WindowsTerminal_8wekyb3d8bbwe",
+            "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App",
+            target,
+            "0",
+        ];
+        let buf = app_exec_link_buffer(IO_REPARSE_TAG_APPEXECLINK, 3, &strings);
+        assert_eq!(parse_app_exec_link(&buf).as_deref(), Some(target));
+
+        // other reparse tags, versions and truncated buffers aren't aliases
+        assert!(parse_app_exec_link(&app_exec_link_buffer(0xA000_000C, 3, &strings)).is_none());
+        assert!(parse_app_exec_link(&app_exec_link_buffer(IO_REPARSE_TAG_APPEXECLINK, 2, &strings)).is_none());
+        assert!(parse_app_exec_link(&app_exec_link_buffer(IO_REPARSE_TAG_APPEXECLINK, 3, &strings[..2])).is_none());
+        assert!(parse_app_exec_link(&buf[..6]).is_none());
     }
 
     #[test]

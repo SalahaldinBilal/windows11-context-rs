@@ -5,9 +5,17 @@
 #![cfg(windows)]
 
 use crate::config::Corner;
-use crate::setup::parse_icon_spec;
+use crate::setup::{parse_app_exec_link, parse_icon_spec};
+use std::os::windows::fs::OpenOptionsExt;
+use std::os::windows::io::AsRawHandle;
 use std::path::Path;
-use windows::core::PCWSTR;
+use windows::core::{HSTRING, PCWSTR};
+use windows::Win32::Foundation::HANDLE;
+use windows::Win32::Storage::FileSystem::{
+    SearchPathW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+};
+use windows::Win32::System::Ioctl::FSCTL_GET_REPARSE_POINT;
+use windows::Win32::System::IO::DeviceIoControl;
 use windows::Win32::Graphics::Gdi::{
     DeleteObject, GetDC, GetDIBits, ReleaseDC, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS,
 };
@@ -37,6 +45,51 @@ fn shield_location() -> Option<(String, i32)> {
     } else {
         Some((path, info.iIcon))
     }
+}
+
+/// Full path of a bare file name ("wt.exe") found on PATH.
+fn search_path(name: &str) -> Option<String> {
+    if name.contains(['\\', '/']) {
+        return None;
+    }
+    let mut buf = [0u16; 1024];
+    let len = unsafe { SearchPathW(None, &HSTRING::from(name), None, Some(&mut buf), None) };
+    (len > 0 && (len as usize) < buf.len()).then(|| String::from_utf16_lossy(&buf[..len as usize]))
+}
+
+/// The exe an app execution alias launches. Aliases are empty reparse points that
+/// icon extraction can't read, but they keep pointing at the current app version.
+fn app_exec_link_target(path: &str) -> Option<String> {
+    let file = std::fs::OpenOptions::new()
+        .access_mode(0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0 | FILE_FLAG_BACKUP_SEMANTICS.0)
+        .open(path)
+        .ok()?;
+    let mut buf = vec![0u8; 16 * 1024];
+    let mut returned = 0u32;
+    unsafe {
+        DeviceIoControl(
+            HANDLE(file.as_raw_handle()),
+            FSCTL_GET_REPARSE_POINT,
+            None,
+            0,
+            Some(buf.as_mut_ptr().cast()),
+            buf.len() as u32,
+            Some(&mut returned),
+            None,
+        )
+    }
+    .ok()?;
+    buf.truncate(returned as usize);
+    parse_app_exec_link(&buf)
+}
+
+/// Icon spec -> extractable (path, index), following PATH lookup and app execution aliases.
+fn icon_location(spec: &str) -> (String, i32) {
+    let (path, index) = parse_icon_spec(spec);
+    let path = search_path(&path).unwrap_or(path);
+    let path = app_exec_link_target(&path).unwrap_or(path);
+    (path, index)
 }
 
 fn extract_icon(path: &str, index: i32, size: i32) -> Option<HICON> {
@@ -209,7 +262,7 @@ pub fn generate_icon(base_spec: &str, dest: &Path, badge: Option<(&str, Corner)>
             let loc = if spec.eq_ignore_ascii_case("uac") {
                 shield_location()
             } else {
-                Some(parse_icon_spec(spec))
+                Some(icon_location(spec))
             };
             let Some((path, index)) = loc else {
                 return false;
@@ -220,7 +273,7 @@ pub fn generate_icon(base_spec: &str, dest: &Path, badge: Option<(&str, Corner)>
     };
     let base = {
         let spec = base_spec.trim();
-        (!spec.is_empty()).then(|| parse_icon_spec(spec))
+        (!spec.is_empty()).then(|| icon_location(spec))
     };
     if base.is_none() && badge_loc.is_none() {
         return false;
@@ -251,6 +304,17 @@ pub fn generate_icon(base_spec: &str, dest: &Path, badge: Option<(&str, Corner)>
 mod tests {
     use super::*;
     use crate::config::Corner;
+
+    #[test]
+    #[ignore = "needs Windows Terminal installed; run manually via: cargo test -- --ignored"]
+    fn follows_app_execution_aliases() {
+        let alias = crate::exec::expand_env(r"%LocalAppData%\Microsoft\WindowsApps\wt.exe");
+        let (path, index) = icon_location(&format!("{alias},0"));
+        assert!(path.contains(r"\WindowsApps\Microsoft.WindowsTerminal_"), "{path}");
+        assert_eq!(index, 0);
+        assert_eq!(icon_location("wt.exe").0, path);
+        assert!(generate_icon(&format!("{alias},0"), &std::env::temp_dir().join("ctx_alias.ico"), None));
+    }
 
     #[test]
     #[ignore = "needs a desktop session with GDI; run manually via: cargo test -- --ignored"]
